@@ -19,12 +19,7 @@ import { parseUrl } from 'next/dist/shared/lib/router/utils/parse-url';
 interface IFormData {
   codAu?: number;
   nome: string;
-}
-interface IFormErrors {
-  [key: string]: {
-    message: string[];
-    type: string;
-  };
+  livros?: any[];
 }
 
 const Autores: React.FC = () => {
@@ -32,7 +27,8 @@ const Autores: React.FC = () => {
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [showAlert, setShowAlert] = useState(false);
   const [alertMessage, setAlertMessage] = useState('');
-  const [showModal, setShowModal] = useState(false);
+  const [showModalLivros, setShowModalLivros] = useState(false);
+  const [showModalItem, setShowModalItem] = useState(false);
   const [item, setItem] = useState({} as IFormData);
 
   const [list, setList] = useState([]);
@@ -50,6 +46,19 @@ const Autores: React.FC = () => {
     mode: 'onTouched',
     reValidateMode: 'onChange',
     defaultValues: {} as IFormData,
+  });
+
+  const {
+    register: bRegister,
+    handleSubmit: bHandleSubmit,
+    setError: bSetError,
+    reset: bReset,
+    setValue: bSetValue,
+    formState: { errors: bErrors, isValid: bIsValid },
+  } = useForm({
+    mode: 'onTouched',
+    reValidateMode: 'onChange',
+    defaultValues: {} as any,
   });
 
   const onSubmit = async (values: IFormData) => {
@@ -113,9 +122,43 @@ const Autores: React.FC = () => {
     await getListData();
   };
 
-  const syncBooks = (lItem: IFormData) => {
+  const getBookList = async () => {
+    const response = await axios.get(`/livro`);
+    setBooks(response.data.data);
+  };
+  const syncBooks = async (lItem: IFormData) => {
+    await getBookList();
+    bSetValue('codAu', item.codAu);
+    bSetValue('arrayCodL', []);
     setItem(lItem);
-    setShowModal(true);
+    setShowModalLivros(true);
+  };
+
+  const bOnSubmit = async (values: any) => {
+    try {
+      values.codAu = item.codAu;
+      await axios.post(`/autor/associar-livro`, values);
+      bReset();
+      setAlertMessage('Item salvo com sucesso!');
+      setShowAlert(true);
+      await getListData();
+      setShowModalLivros(false);
+    } catch (e: any) {
+      if (e.response.status === 422) {
+        for (const err in e.response.data.errors) {
+          bSetError(err as any, {
+            type: 'manual',
+            message: e.response.data.errors[err][0],
+          });
+        }
+      }
+    }
+  };
+
+  const openModalItemView = async (lItem: IFormData) => {
+    const response = await axios.get(`/autor/${lItem.codAu}`);
+    setItem(response.data.data);
+    setShowModalItem(true);
   };
   useEffect(() => {
     getListData();
@@ -208,11 +251,26 @@ const Autores: React.FC = () => {
                         <td>{item.nome}</td>
                         <td>
                           {item.livros.map(function (livro: any, li: number) {
-                            return <p key={`livro-${i}`}>{livro.title}</p>;
+                            return (
+                              <span
+                                className='d-block border-bottom border-dark mb-2'
+                                key={`livro-${i}-${li}`}
+                              >
+                                {livro.titulo}
+                              </span>
+                            );
                           })}
                         </td>
                         <td className='text-center'>
                           <div className='d-flex justify-content-center gap-2 align-items-center'>
+                            <Button
+                              type='button'
+                              size='sm'
+                              variant='primary'
+                              onClick={() => openModalItemView(item)}
+                            >
+                              Ver
+                            </Button>
                             <Button
                               type='button'
                               size='sm'
@@ -285,17 +343,90 @@ const Autores: React.FC = () => {
           </Col>
         </Row>
       </Container>
-      <Modal show={showModal} onHide={() => setShowModal(false)}>
+      <Modal
+        show={showModalLivros}
+        onHide={() => setShowModalLivros(false)}
+        backdrop='static'
+      >
+        <Form
+          noValidate
+          onSubmit={bHandleSubmit(bOnSubmit)}
+          validated={bIsValid}
+        >
+          <Modal.Header closeButton>
+            <Modal.Title>Associar Livros</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            <Container>
+              <Row>
+                <Col xs={12}>
+                  <h5 className='h6'>Autor: {item.nome}</h5>
+                </Col>
+                <Col xs={12}>
+                  <Form.Group>
+                    <Form.Label>Livros</Form.Label>
+                    <Form.Control
+                      type='text'
+                      placeholder='codau'
+                      hidden
+                      {...register('codAu', { value: item.codAu })}
+                    />
+                    <Form.Select multiple {...bRegister('arrayCodL')}>
+                      {books.map((book: any, i) => {
+                        return (
+                          <option key={`book-list-${i}`} value={book.codL}>
+                            {book.titulo}
+                          </option>
+                        );
+                      })}
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+              </Row>
+            </Container>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button
+              variant='secondary'
+              onClick={() => setShowModalLivros(false)}
+            >
+              Fechar
+            </Button>
+            <Button variant='primary' type='submit'>
+              Salvar
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+
+      <Modal
+        show={showModalItem}
+        onHide={() => setShowModalItem(false)}
+        backdrop='static'
+      >
         <Modal.Header closeButton>
-          <Modal.Title>Associar Livros</Modal.Title>
+          <Modal.Title>Visualização</Modal.Title>
         </Modal.Header>
-        <Modal.Body>Woohoo, you are reading this text in a modal!</Modal.Body>
+        <Modal.Body>
+          <Container>
+            <Row>
+              <Col xs={12}>Nome do autor: {item.nome}</Col>
+              {item?.livros && item.livros?.length > 0 && (
+                <Col xs={12}>
+                  <p>Livros: </p>
+                  <ul>
+                    {item.livros?.map((book: any, i) => {
+                      return <li key={`livro-${i}`}>{book.titulo}</li>;
+                    })}
+                  </ul>
+                </Col>
+              )}
+            </Row>
+          </Container>
+        </Modal.Body>
         <Modal.Footer>
-          <Button variant='secondary' onClick={() => setShowModal(false)}>
+          <Button variant='secondary' onClick={() => setShowModalItem(false)}>
             Fechar
-          </Button>
-          <Button variant='primary' onClick={() => setShowModal(false)}>
-            Salvar
           </Button>
         </Modal.Footer>
       </Modal>
